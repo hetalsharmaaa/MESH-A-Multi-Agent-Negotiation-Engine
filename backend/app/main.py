@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import settings
 from app.core.digital_twin import digital_twin, Bed, StaffMember, Equipment, MedicineStock
 from app.core.event_bus import event_bus
-from app.config import settings
+from app.agents.emergency_agent import EmergencyAgent
+from app.models.schemas import ScenarioRequest
 
 app = FastAPI(
     title="MESH - Multi-Agent Negotiation Engine",
@@ -10,10 +13,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Allow frontend (React/etc) to call this API later
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten this in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,6 +34,8 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
 @app.get("/twin/seed")
 def seed_twin():
     """Seed the digital twin with sample hospital data — for testing only."""
@@ -45,3 +49,25 @@ def seed_twin():
     event_bus.publish("twin_seeded", {"message": "sample data loaded"}, source="system")
 
     return digital_twin.snapshot()
+
+
+@app.post("/scenario/trigger")
+def trigger_scenario(request: ScenarioRequest):
+    """
+    Trigger a simulated hospital event and see what the Emergency Agent proposes.
+    This will later route through negotiation + verification too.
+    """
+    event = event_bus.publish(
+        request.scenario_type,
+        payload=request.model_dump(),
+        source="simulation",
+    )
+
+    emergency_agent = EmergencyAgent(twin=digital_twin, bus=event_bus)
+    proposals = emergency_agent.propose(event)
+
+    return {
+        "event": event,
+        "agent_observation": emergency_agent.observe(),
+        "proposals": [p.model_dump() for p in proposals],
+    }
