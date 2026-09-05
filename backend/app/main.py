@@ -11,6 +11,7 @@ from app.core.event_bus import event_bus
 from app.agents.emergency_agent import EmergencyAgent
 from app.models.schemas import ScenarioRequest
 from app.negotiation.negotiation_engine import NegotiationEngine
+from app.negotiation.trust import trust_engine
 
 app = FastAPI(
     title="MESH - Multi-Agent Negotiation Engine",
@@ -103,3 +104,8 @@ def negotiate_patient_surge(request: ScenarioRequest):
         patient_count=request.patient_count or 0,
     )
     return result
+
+@app.get("/trust/snapshot")
+def get_trust_snapshot():
+    """See every agent's current reliability score."""
+    return trust_engine.snapshot()

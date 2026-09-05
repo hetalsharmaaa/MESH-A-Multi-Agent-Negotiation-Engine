@@ -9,6 +9,7 @@ from app.agents.staff_agent import StaffAgent
 from app.agents.equipment_agent import EquipmentAgent
 from app.agents.pharmacy_agent import PharmacyAgent
 from app.agents.ot_agent import OTAgent
+from app.negotiation.trust import trust_engine
 
 
 class NegotiationEngine:
@@ -119,7 +120,7 @@ class NegotiationEngine:
         scored = [
             {
                 "proposal": p.model_dump(),
-                "score": score_proposal(p, self.agents[p.agent.value].reliability_score),
+                "score": score_proposal(p, trust_engine.get_score(p.agent)),
             }
             for p in proposals
         ]
@@ -128,8 +129,20 @@ class NegotiationEngine:
         if winner is None and scored:
             winner = Proposal(**scored[0]["proposal"])
 
+        # Record outcomes: the winning agent's proposal "succeeded",
+        # shortage/failure proposals count as a miss for that agent.
+        for p in proposals:
+            if winner and p.agent == winner.agent and p.action == winner.action:
+                trust_engine.record_outcome(p.agent, success=True, note="Proposal selected as winning action")
+            elif p.action in {
+                "no_capacity_available", "staff_shortage",
+                "equipment_shortage", "medicine_shortage", "ot_shortage",
+            }:
+                trust_engine.record_outcome(p.agent, success=False, note=p.reason)
+
         return {
             "decision_trace": trace,
             "scored_proposals": scored,
             "winning_action": winner.model_dump() if winner else None,
+            "trust_snapshot": trust_engine.snapshot(),
         }
