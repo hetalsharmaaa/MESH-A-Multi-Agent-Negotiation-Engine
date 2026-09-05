@@ -1,11 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.agents.bed_agent import BedAgent
+from app.agents.staff_agent import StaffAgent
+from app.agents.equipment_agent import EquipmentAgent
+from app.agents.pharmacy_agent import PharmacyAgent
+from app.agents.ot_agent import OTAgent
 from app.config import settings
 from app.core.digital_twin import digital_twin, Bed, StaffMember, Equipment, MedicineStock
 from app.core.event_bus import event_bus
 from app.agents.emergency_agent import EmergencyAgent
 from app.models.schemas import ScenarioRequest
+from app.negotiation.negotiation_engine import NegotiationEngine
 
 app = FastAPI(
     title="MESH - Multi-Agent Negotiation Engine",
@@ -71,3 +76,30 @@ def trigger_scenario(request: ScenarioRequest):
         "agent_observation": emergency_agent.observe(),
         "proposals": [p.model_dump() for p in proposals],
     }
+
+
+@app.get("/agents/observe")
+def observe_all_agents():
+    """Debug endpoint: see what every agent currently sees in the twin."""
+    return {
+        "emergency": EmergencyAgent(digital_twin, event_bus).observe(),
+        "bed": BedAgent(digital_twin, event_bus).observe(),
+        "staff": StaffAgent(digital_twin, event_bus).observe(),
+        "equipment": EquipmentAgent(digital_twin, event_bus).observe(),
+        "pharmacy": PharmacyAgent(digital_twin, event_bus).observe(),
+        "ot": OTAgent(digital_twin, event_bus).observe(),
+    }
+
+@app.post("/negotiate/patient-surge")
+def negotiate_patient_surge(request: ScenarioRequest):
+    """
+    Runs the full negotiation flow for a patient surge scenario:
+    Emergency -> Bed -> Staff -> Equipment, all proposals scored,
+    best plan selected with a full decision trace.
+    """
+    engine = NegotiationEngine(twin=digital_twin, bus=event_bus)
+    result = engine.run_patient_surge(
+        ward=request.ward or "ICU",
+        patient_count=request.patient_count or 0,
+    )
+    return result
