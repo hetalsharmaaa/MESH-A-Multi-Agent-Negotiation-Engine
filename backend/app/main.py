@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.db.database import engine, Base
+from app.db import models  # noqa: F401 — needed so SQLAlchemy registers the tables
 
 app = FastAPI(
     title="MESH - Multi-Agent Negotiation Engine",
@@ -16,5 +18,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+Base.metadata.create_all(bind=engine)
 
 app.include_router(router)
