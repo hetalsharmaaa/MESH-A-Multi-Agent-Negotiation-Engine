@@ -40,7 +40,6 @@ class NegotiationEngine:
         trace: list[dict] = []
         all_proposals: list[Proposal] = []
 
-        # Step 1: Emergency Agent evaluates the surge
         emergency_event = self.bus.publish(
             "patient_surge",
             payload={"target_id": ward, "patient_count": patient_count},
@@ -58,7 +57,6 @@ class NegotiationEngine:
         if top_emergency.action == "admit_to_icu":
             return self._finalize(trace, all_proposals, winner=top_emergency)
 
-        # Step 2: There's a shortfall — Bed Agent looks for overflow capacity
         shortfall = patient_count - self.agents["emergency"].observe()["free_icu_beds"]
         bed_event = {
             "type": "request_overflow_capacity",
@@ -79,7 +77,6 @@ class NegotiationEngine:
 
         overflow_ward = best_bed_proposal.target_id
 
-        # Step 3: Staff Agent checks coverage for the overflow ward
         staff_event = {
             "type": "convert_ward_beds",
             "payload": {"target_id": overflow_ward},
@@ -92,7 +89,6 @@ class NegotiationEngine:
             "proposals": [p.model_dump() for p in staff_proposals],
         })
 
-        # Step 4: Equipment Agent checks critical gear for the overflow ward
         equipment_event = {
             "type": "convert_ward_beds",
             "payload": {"target_id": overflow_ward, "equipment_type": "ventilator"},
@@ -105,7 +101,107 @@ class NegotiationEngine:
             "proposals": [p.model_dump() for p in equipment_proposals],
         })
 
-        # Step 5: Score everything and pick the winning plan
+        return self._finalize(trace, all_proposals)
+
+    def run_equipment_failure(self, ward: str, equipment_type: str = "ventilator") -> dict:
+        """
+        Handles an equipment failure scenario: Equipment Agent reports the
+        failure, then checks if the same ward (or reallocation) has a working
+        replacement available.
+        """
+        trace: list[dict] = []
+        all_proposals: list[Proposal] = []
+
+        equipment_event = {
+            "type": "equipment_check",
+            "payload": {"target_id": ward, "equipment_type": equipment_type},
+        }
+        equipment_proposals = self.agents["equipment"].propose(equipment_event)
+        all_proposals.extend(equipment_proposals)
+        trace.append({
+            "stage": "equipment_assessment",
+            "agent": "equipment",
+            "proposals": [p.model_dump() for p in equipment_proposals],
+        })
+
+        top = equipment_proposals[0]
+        if top.action == "allocate_equipment":
+            return self._finalize(trace, all_proposals, winner=top)
+
+        staff_event = {
+            "type": "convert_ward_beds",
+            "payload": {"target_id": ward},
+        }
+        staff_proposals = self.agents["staff"].propose(staff_event)
+        all_proposals.extend(staff_proposals)
+        trace.append({
+            "stage": "staff_fallback_check",
+            "agent": "staff",
+            "proposals": [p.model_dump() for p in staff_proposals],
+        })
+
+        return self._finalize(trace, all_proposals)
+
+    def run_medicine_shortage(self, medicine: str, amount_needed: int) -> dict:
+        """
+        Handles a medicine shortage scenario: Pharmacy Agent checks stock,
+        and if insufficient, this is flagged directly (no substitute agent
+        exists yet — a good future-work item to mention in your report).
+        """
+        trace: list[dict] = []
+        all_proposals: list[Proposal] = []
+
+        pharmacy_event = {
+            "type": "medicine_demand",
+            "payload": {"medicine": medicine, "amount": amount_needed},
+        }
+        pharmacy_proposals = self.agents["pharmacy"].propose(pharmacy_event)
+        all_proposals.extend(pharmacy_proposals)
+        trace.append({
+            "stage": "pharmacy_assessment",
+            "agent": "pharmacy",
+            "proposals": [p.model_dump() for p in pharmacy_proposals],
+        })
+
+        return self._finalize(trace, all_proposals)
+
+    def run_ot_overload(self, surgery_count: int) -> dict:
+        """
+        Handles an OT overload scenario: OT Agent checks slot availability,
+        and if insufficient, Staff Agent checks if extending hours / adding
+        a shift is feasible.
+        """
+        trace: list[dict] = []
+        all_proposals: list[Proposal] = []
+
+        ot_event = {
+            "type": "surgery_request",
+            "payload": {"surgery_count": surgery_count},
+        }
+        ot_proposals = self.agents["ot"].propose(ot_event)
+        all_proposals.extend(ot_proposals)
+        trace.append({
+            "stage": "ot_assessment",
+            "agent": "ot",
+            "proposals": [p.model_dump() for p in ot_proposals],
+        })
+
+        top = ot_proposals[0]
+        if top.action == "schedule_surgery":
+            return self._finalize(trace, all_proposals, winner=top)
+
+        staff_event = {
+            "type": "convert_ward_beds",
+            "payload": {"target_id": "OT"},
+        }
+        staff_proposals = self.agents["staff"].propose(staff_event)
+        all_proposals.extend(staff_proposals)
+        trace.append({
+            "stage": "staff_extension_check",
+            "agent": "staff",
+            "proposals": [p.model_dump() for p in staff_proposals],
+        })
+
         return self._finalize(trace, all_proposals)
 
     def _finalize(self, trace: list[dict], proposals: list[Proposal], winner: Proposal = None) -> dict:
@@ -121,7 +217,6 @@ class NegotiationEngine:
         if winner is None and scored:
             winner = Proposal(**scored[0]["proposal"])
 
-        # ---- Verification stage ----
         verification_log = []
         verified_winner = None
 
@@ -146,7 +241,6 @@ class NegotiationEngine:
                     verified_winner = candidate
                     break
 
-        # Record trust outcomes based on final verified result
         for p in proposals:
             if verified_winner and p.agent == verified_winner.agent and p.action == verified_winner.action:
                 trust_engine.record_outcome(p.agent, success=True, note="Proposal passed verification and was selected")
