@@ -10,7 +10,7 @@ from app.agents.equipment_agent import EquipmentAgent
 from app.agents.pharmacy_agent import PharmacyAgent
 from app.agents.ot_agent import OTAgent
 from app.negotiation.trust import trust_engine
-
+from app.verification.constraint_checker import ConstraintChecker
 
 class NegotiationEngine:
     """
@@ -29,6 +29,7 @@ class NegotiationEngine:
     def __init__(self, twin: DigitalTwin, bus: EventBus):
         self.twin = twin
         self.bus = bus
+        self.verifier = ConstraintChecker(twin)
         self.agents = {
             "emergency": EmergencyAgent(twin, bus),
             "bed": BedAgent(twin, bus),
@@ -129,11 +130,36 @@ class NegotiationEngine:
         if winner is None and scored:
             winner = Proposal(**scored[0]["proposal"])
 
-        # Record outcomes: the winning agent's proposal "succeeded",
-        # shortage/failure proposals count as a miss for that agent.
+        # ---- Verification stage ----
+        verification_log = []
+        verified_winner = None
+
+        if winner:
+            candidates = [winner] + [Proposal(**s["proposal"]) for s in scored if Proposal(**s["proposal"]) != winner]
+            # Deduplicate while preserving order (in case winner is already in scored)
+            seen = set()
+            ordered_candidates = []
+            for c in candidates:
+                key = (c.agent, c.action, c.target_id)
+                if key not in seen:
+                    seen.add(key)
+                    ordered_candidates.append(c)
+
+            for candidate in ordered_candidates:
+                violations = self.verifier.check(candidate)
+                verification_log.append({
+                    "candidate": candidate.model_dump(),
+                    "violations": [v.to_dict() for v in violations],
+                    "passed": len(violations) == 0,
+                })
+                if not violations:
+                    verified_winner = candidate
+                    break
+
+        # Record trust outcomes based on final verified result
         for p in proposals:
-            if winner and p.agent == winner.agent and p.action == winner.action:
-                trust_engine.record_outcome(p.agent, success=True, note="Proposal selected as winning action")
+            if verified_winner and p.agent == verified_winner.agent and p.action == verified_winner.action:
+                trust_engine.record_outcome(p.agent, success=True, note="Proposal passed verification and was selected")
             elif p.action in {
                 "no_capacity_available", "staff_shortage",
                 "equipment_shortage", "medicine_shortage", "ot_shortage",
@@ -143,6 +169,8 @@ class NegotiationEngine:
         return {
             "decision_trace": trace,
             "scored_proposals": scored,
-            "winning_action": winner.model_dump() if winner else None,
+            "verification_log": verification_log,
+            "winning_action": verified_winner.model_dump() if verified_winner else None,
+            "verification_failed_completely": verified_winner is None and winner is not None,
             "trust_snapshot": trust_engine.snapshot(),
         }

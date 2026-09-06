@@ -109,3 +109,8 @@ def negotiate_patient_surge(request: ScenarioRequest):
 def get_trust_snapshot():
     """See every agent's current reliability score."""
     return trust_engine.snapshot()
+
+@app.post("/twin/break-equipment/{equipment_id}")
+def break_equipment(equipment_id: str):
+    digital_twin.mark_equipment_faulty(equipment_id)
+    return {"status": "marked faulty", "equipment_id": equipment_id}
