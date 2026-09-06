@@ -11,6 +11,8 @@ from app.agents.pharmacy_agent import PharmacyAgent
 from app.agents.ot_agent import OTAgent
 from app.negotiation.trust import trust_engine
 from app.verification.constraint_checker import ConstraintChecker
+from app.explainability.decision_trace import generate_decision_trace
+
 
 class NegotiationEngine:
     """
@@ -19,11 +21,6 @@ class NegotiationEngine:
     Flow (matches the PDF's architecture):
       Hospital -> Digital Twin -> Multi-Agent System -> Negotiation
       -> Constraint Verification -> Explainable Decision
-
-    This class handles the "Negotiation" stage: it runs the relevant
-    agents in sequence, collects every proposal made along the chain,
-    scores them all with the utility function, and returns the winner
-    plus a full decision trace.
     """
 
     def __init__(self, twin: DigitalTwin, bus: EventBus):
@@ -40,11 +37,6 @@ class NegotiationEngine:
         }
 
     def run_patient_surge(self, ward: str, patient_count: int) -> dict:
-        """
-        Handles the 'patient_surge' scenario end-to-end:
-        Emergency reports shortfall -> Bed offers overflow -> Staff confirms ->
-        Equipment confirms -> all proposals scored -> best plan selected.
-        """
         trace: list[dict] = []
         all_proposals: list[Proposal] = []
 
@@ -62,7 +54,6 @@ class NegotiationEngine:
             "proposals": [p.model_dump() for p in emergency_proposals],
         })
 
-        # If ICU capacity was sufficient, negotiation ends here — no shortfall to resolve
         top_emergency = emergency_proposals[0]
         if top_emergency.action == "admit_to_icu":
             return self._finalize(trace, all_proposals, winner=top_emergency)
@@ -136,7 +127,6 @@ class NegotiationEngine:
 
         if winner:
             candidates = [winner] + [Proposal(**s["proposal"]) for s in scored if Proposal(**s["proposal"]) != winner]
-            # Deduplicate while preserving order (in case winner is already in scored)
             seen = set()
             ordered_candidates = []
             for c in candidates:
@@ -166,7 +156,7 @@ class NegotiationEngine:
             }:
                 trust_engine.record_outcome(p.agent, success=False, note=p.reason)
 
-        return {
+        result = {
             "decision_trace": trace,
             "scored_proposals": scored,
             "verification_log": verification_log,
@@ -174,3 +164,5 @@ class NegotiationEngine:
             "verification_failed_completely": verified_winner is None and winner is not None,
             "trust_snapshot": trust_engine.snapshot(),
         }
+        result["decision_summary"] = generate_decision_trace(result)
+        return result
