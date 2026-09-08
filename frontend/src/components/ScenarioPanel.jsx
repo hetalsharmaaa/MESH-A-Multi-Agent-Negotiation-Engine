@@ -14,7 +14,7 @@ const SCENARIOS = {
   ot_overload: { label: "OT Overload", fields: ["surgery_count"] },
 };
 
-function ScenarioPanel() {
+function ScenarioPanel({ onNegotiationComplete }) {
   const [scenarioType, setScenarioType] = useState("patient_surge");
   const [form, setForm] = useState({
     ward: "ICU",
@@ -35,8 +35,9 @@ function ScenarioPanel() {
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
-    setResult(null);
-
+          setResult(data);
+      if (onNegotiationComplete) onNegotiationComplete();
+      
     try {
       let data;
       if (scenarioType === "patient_surge") {

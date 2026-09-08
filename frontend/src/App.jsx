@@ -1,10 +1,17 @@
 import { useState } from "react";
 import TwinPanel from "./components/TwinPanel";
 import ScenarioPanel from "./components/ScenarioPanel";
+import TrustPanel from "./components/TrustPanel";
+import HistoryPanel from "./components/HistoryPanel";
 import "./App.css";
 
 function App() {
   const [twinData, setTwinData] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleNegotiationComplete = () => {
+    setRefreshKey((prev) => prev + 1);
+  };
 
   return (
     <div className="app-container">
@@ -15,8 +22,13 @@ function App() {
 
       <main className="dashboard-grid">
         <TwinPanel twinData={twinData} setTwinData={setTwinData} />
-        <ScenarioPanel />
+        <ScenarioPanel onNegotiationComplete={handleNegotiationComplete} />
       </main>
+
+      <section className="dashboard-grid" style={{ marginTop: "1.5rem" }}>
+        <TrustPanel refreshKey={refreshKey} />
+        <HistoryPanel refreshKey={refreshKey} />
+      </section>
     </div>
   );
 }
