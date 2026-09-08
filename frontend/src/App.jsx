@@ -1,32 +1,22 @@
 import { useState } from "react";
-import { seedTwin } from "./api/client";
+import TwinPanel from "./components/TwinPanel";
+import ScenarioPanel from "./components/ScenarioPanel";
+import "./App.css";
 
 function App() {
   const [twinData, setTwinData] = useState(null);
-  const [error, setError] = useState(null);
-
-  const handleSeed = async () => {
-    try {
-      setError(null);
-      const data = await seedTwin();
-      setTwinData(data);
-    } catch (err) {
-      setError(err.message || "Failed to connect to backend");
-    }
-  };
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>MESH — Multi-Agent Negotiation Engine</h1>
-      <button onClick={handleSeed}>Seed Digital Twin</button>
+    <div className="app-container">
+      <header>
+        <h1>MESH</h1>
+        <p className="subtitle">AI-Driven Multi-Agent Decision Intelligence Engine — Hospital Digital Twin</p>
+      </header>
 
-      {error && <p style={{ color: "red" }}>Error: {error}</p>}
-
-      {twinData && (
-        <pre style={{ background: "#f4f4f4", padding: "1rem", marginTop: "1rem" }}>
-          {JSON.stringify(twinData, null, 2)}
-        </pre>
-      )}
+      <main className="dashboard-grid">
+        <TwinPanel twinData={twinData} setTwinData={setTwinData} />
+        <ScenarioPanel />
+      </main>
     </div>
   );
 }
