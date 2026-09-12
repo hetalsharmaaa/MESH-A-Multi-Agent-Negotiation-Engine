@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 import json
 
 from app.db.database import get_db
-from app.db.models import BedRecord, StaffRecord, EquipmentRecord, MedicineRecord, NegotiationLog, TrustHistoryRecord
+from app.db.models import BedRecord, StaffRecord, EquipmentRecord, MedicineRecord
 from app.core.digital_twin import BedStatus, EquipmentStatus
 
 router = APIRouter()
@@ -102,17 +102,6 @@ def negotiate_patient_surge(request: ScenarioRequest, db: Session = Depends(get_
         patient_count=request.patient_count or 0,
     )
 
-    db.add(NegotiationLog(
-        scenario_type="patient_surge",
-        input_payload=json.dumps(request.model_dump()),
-        winning_action=json.dumps(result.get("winning_action")),
-        decision_summary=json.dumps(result.get("decision_summary")),
-        verification_passed=not result.get("verification_failed_completely", False),
-    ))
-    for agent, data in result.get("trust_snapshot", {}).items():
-        db.add(TrustHistoryRecord(agent=agent, reliability_score=data["reliability_score"]))
-    db.commit()
-
     return result
 
 @router.post("/negotiate/equipment-failure")
@@ -149,15 +138,5 @@ def get_trust_snapshot():
 
 @router.get("/history/negotiations")
 def get_negotiation_history(db: Session = Depends(get_db)):
-    """Returns all past negotiation results — useful for your evaluation charts."""
-    logs = db.query(NegotiationLog).order_by(NegotiationLog.created_at.desc()).all()
-    return [
-        {
-            "id": log.id,
-            "scenario_type": log.scenario_type,
-            "winning_action": json.loads(log.winning_action) if log.winning_action else None,
-            "verification_passed": log.verification_passed,
-            "created_at": log.created_at.isoformat(),
-        }
-        for log in logs
-    ]
+    """TODO rebuild against new Negotiation/Decision tables."""
+    return {"message": "History tracking is being migrated to the new schema — coming in Step 3."}
